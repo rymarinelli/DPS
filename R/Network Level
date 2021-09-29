@@ -21,3 +21,28 @@ box_plot <- ggplot(df, aes(Subject.Area, ACT_SS)) + geom_jitter(aes(color = Subj
                                                                                                                                                colour ="darkblue"))                                                                                                                                        size=0.4, linetype="solid", 
                                                                                                                                                
 box_plot + facet_grid(Network ~ .) + coord_flip()+ ggtitle("Comparison of ACT Scores By Subject Area Per Network")
+
+time_plot_data <- aggregate(df$ACT_SS, list(df$Subject.Area,df$Year), mean)
+
+time_plot <- ggplot(time_plot_data, aes(y=time_plot_data$x, x=time_plot_data$Group.2, colour= time_plot_data$Group.1, group=time_plot_data$Group.1)) +
+  geom_line() + ggtitle("Mean Scores For All Students") + xlab("Years") + ylab("ACT Scores")
+
+time_plot$labels$colour <- "Subjects"
+
+time_plot <- time_plot + theme(legend.background = element_rect(fill="lightblue",
+                                                                  size=0.4, linetype="solid", 
+                                                                  colour ="darkblue"))
+time_plot +  facet_grid(Network ~ .)
+
+
+
+network_data <- aggregate(df$ACT_SS, list(df$Subject.Area,df$Year, df$Network), mean)
+colnames(network_data) <- c("Subject", "Year", "Network", "Score")
+
+network_plot <- ggplot(network_data, aes(x = Year, y = Score,  colour= Subject , group= Subject)) +
+  geom_line() + facet_grid(Network ~ .) + xlab("Years") + ylab("ACT Scores")  + ggtitle("Mean Scores For All Students By Network and Subject") 
+
+network_plot <- network_plot + theme(legend.background = element_rect(fill="lightblue",
+                                                         size=0.4, linetype="solid", 
+                                                         colour ="darkblue"))                                                                                                                              
+network_plot
