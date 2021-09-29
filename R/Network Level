@@ -1,0 +1,23 @@
+library(openxlsx)
+library(tidyverse)
+
+
+
+df <- read.xlsx("https://github.com/rymarinelli/DPS/blob/main/data/Data%20and%20Codebook.xlsx?raw=true", sheet = "Data")
+network <- read.xlsx("https://github.com/rymarinelli/DPS/blob/main/data/Data%20and%20Codebook.xlsx?raw=true", sheet = "Network")
+codebook <- read.xlsx("https://github.com/rymarinelli/DPS/blob/main/data/Data%20and%20Codebook.xlsx?raw=true", sheet = "Codebook")
+
+# Data Quality 
+#Check for missing data 
+
+df <- df %>% na.omit()
+df <- df %>% subset(df$ACT_SS != 0)
+
+df <- left_join(df,network)
+
+box_plot <- ggplot(df, aes(Subject.Area, ACT_SS)) + geom_jitter(aes(color = Subject.Area), width = 0.2) + geom_boxplot(fill = Subject.Area) +
+  xlab("Subject Areas") + ylab("ACT   Scores") + ggtitle("Comparison of ACT Scores By Subject Areas Per Network") + theme(legend.background = element_rect(fill="lightblue",
+                                                                                                                                               size=0.4, linetype="solid", 
+                                                                                                                                               colour ="darkblue"))                                                                                                                                        size=0.4, linetype="solid", 
+                                                                                                                                               
+box_plot + facet_grid(Network ~ .) + coord_flip()+ ggtitle("Comparison of ACT Scores By Subject Area Per Network")
