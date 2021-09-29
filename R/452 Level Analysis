@@ -1,0 +1,170 @@
+library(openxlsx)
+library(tidyverse)
+library(hrbrthemes)
+library(ggridges)
+library(patchwork)
+library(xts)
+library(dygraphs)
+library(lubridate)
+library(plm)
+library(data.table)
+library(broom)
+
+
+df <- read.xlsx("https://github.com/rymarinelli/DPS/blob/main/data/Data%20and%20Codebook.xlsx?raw=true", sheet = "Data")
+network <- read.xlsx("https://github.com/rymarinelli/DPS/blob/main/data/Data%20and%20Codebook.xlsx?raw=true", sheet = "Network")
+codebook <- read.xlsx("https://github.com/rymarinelli/DPS/blob/main/data/Data%20and%20Codebook.xlsx?raw=true", sheet = "Codebook")
+
+# Data Quality 
+#Check for missing data 
+
+df <- df %>% na.omit()
+df <- df %>% subset(df$ACT_SS != 0) 
+
+
+
+#Analysis of the school facing the most difficulties
+# Break it down by year and find yearly change
+# Find which student demographics are having the most problems 
+# Find which students passed the threshold from being under performing to performing and make a linear model 
+
+
+student_df <- df %>% subset( (Subject.Area == "Science" & ACT_SS < 18) | (Subject.Area == "English" & ACT_SS < 18)
+                             |(Subject.Area == "Reading" & ACT_SS < 22) | (Subject.Area == "Math" & ACT_SS < 22))
+
+student_df <- student_df %>% subset(student_df$School.Name == "School 452")
+
+student_df <- student_df %>% group_by(Subject.Area,Year) %>% summarize(average_scores = mean(ACT_SS))
+
+student_df <- as.data.table(student_df)
+
+student_df[, lag.value:=c(NA, average_scores[-.N]), by= "Subject.Area"]
+
+student_df <- student_df %>% na.omit()
+
+student_df <- student_df %>% mutate(Score_Varation = (average_scores - lag.value)*100)
+# Subject, student ID, year 
+# For each subject and student substract previous year 
+
+
+
+
+trend_plot_data <- aggregate(student_df$Score_Varation, list(student_df$Subject.Area, student_df$Year), mean)
+
+colnames(trend_plot_data) <- c("Subject.Area", "Year", "Average Score Change")
+
+trend_plot_data$Year <- trend_plot_data$Year %>% as.character()
+
+
+
+
+line_plot <- ggplot(trend_plot_data, aes(x= Year, y= trend_plot_data$`Average Score Change`, colour= Subject.Area, group=Subject.Area)) + geom_line() + geom_point() + ylab("Percent Differences in  ACT Scores")
+
+theme_line_plot <- line_plot + ggtitle("Mean Percent Change in Mean Scores of Underperforming Students School 452 ") + theme(plot.title = element_text(face = "bold")) + theme(legend.background = element_rect(fill="lightblue",
+                                                                                                                                                                         size=0.4, linetype="solid", 
+                                                                                                                                                                         colour ="darkblue")) 
+# Breakdown of students not seeing progress
+
+student_df <- df %>% subset( (Subject.Area == "Science" & ACT_SS < 18) | (Subject.Area == "English" & ACT_SS < 18)
+                             |(Subject.Area == "Reading" & ACT_SS < 22) | (Subject.Area == "Math" & ACT_SS < 22))
+
+student_df <- student_df %>% subset(student_df$School.Name == "School 452")
+
+#Score_Variation will be average performance of the school verse average performance of the target group
+
+
+
+troubled_students <- student_df 
+
+troubled_students$ETHNICCODE <- dplyr::recode(troubled_students$CDE_ETHNICCODE %>% as.character(), "1" = "American Indian", "2" = "Asian", "3" = "Black/African American", "4" = "Hispanic/Latino", "5" = "White","6" = "Native American/Pacific Islander", "7" = "Two or More Races")
+
+
+troubled_students$Home_Prim_Lang <- dplyr::recode(troubled_students$Home_Prim_Lang %>% as.character(), "0" = "Non-Native Speaker", "1" = "Native Speaker")
+
+troubled_students$Gen <- dplyr::recode(troubled_students$Gen %>% as.character(), "0" = "Female", "1" = "Male")
+
+lang <- ggplot(troubled_students, aes(Home_Prim_Lang, ACT_SS, group = Home_Prim_Lang)) + geom_jitter(aes(color = troubled_students$Home_Prim_Lang), width = 0.2) + geom_boxplot() + xlab("Langague Status") + ylab("ACT Scores") + ggtitle("Distribution of Scores By Language Status For Underperforming Students")
+lang$labels$colour <- "Langauge Status"
+
+gender <- ggplot(troubled_students, aes(Gen, ACT_SS), group = Gen) + geom_jitter(aes(color = troubled_students$Gen), width = 0.2) + geom_boxplot() +xlab("Gender") + ylab("ACT Score") + ggtitle("Distribution of Scores By Gender For Underperforming Students") + guides(fill=guide_legend(title="Gender"))
+gender$labels$colour <- "Gender"
+
+enth <- ggplot(troubled_students, aes(ETHNICCODE, ACT_SS, group = ETHNICCODE)) + geom_jitter(aes(color = ETHNICCODE), width = 0.2) + geom_boxplot() + coord_flip() + ylab("ACT Score") + xlab("Ethnicity") + ggtitle("Distribution of Scores By Ethnicity For Underperforming Students")
+enth$labels$colour <- "Ethnicity"
+
+
+troubled_students <-  troubled_students %>% mutate(intersection = case_when(
+                                                        (troubled_students$Gen == "Female" & troubled_students$Home_Prim_Lang == "Non-Native Speaker") ~ "Female Non-Native Speaker",
+                                                        (troubled_students$Gen == "Male" & troubled_students$Home_Prim_Lang == "Non-Native Speaker") ~ "Male Non-Native Speaker",
+                                                        (troubled_students$Gen == "Female" & troubled_students$Home_Prim_Lang == "Native Speaker")~ "Female Native Speaker",
+                                                        T ~ "Male Native Speaker"))
+gender_intersection <- ggplot(troubled_students, aes(intersection, ACT_SS), group = troubled_students$intersection) + geom_jitter(aes(color = troubled_students$intersection), width = 0.2) + geom_boxplot() +xlab("Gender") + ylab("ACT Score") + ggtitle("Distribution of Scores By Gender For Underperforming Students") + guides(fill=guide_legend(title="Gender"))
+gender_intersection <- gender_intersection + coord_flip()
+gender_intersection$labels$colour <- "Intersection of Gender and Language Status"
+
+troubled_students <- troubled_students %>% mutate(race_intersection = case_when(
+                                                            (troubled_students$Gen == "Female" & troubled_students$ETHNICCODE == "Black/African American") ~ "Black Woman",
+                                                            (troubled_students$Gen == "Male" & troubled_students$ETHNICCODE == "Black/African American") ~ "Black Man",
+                                                            
+                                                            (troubled_students$Gen == "Female" & troubled_students$ETHNICCODE == "White") ~ "White Woman",
+                                                            (troubled_students$Gen == "Male" & troubled_students$ETHNICCODE == "White") ~ "White Man",
+                                                            
+                                                            (troubled_students$Gen == "Female" & troubled_students$ETHNICCODE == "Hispanic/Latino") ~ "Latina Woman",
+                                                            (troubled_students$Gen == "Male" & troubled_students$ETHNICCODE == "Hispanic/Latino") ~ "Latino Man",
+                                                            
+                                                            (troubled_students$Gen == "Female" & troubled_students$ETHNICCODE == "Asian") ~ "Asian Woman",
+                                                            (troubled_students$Gen == "Male" & troubled_students$ETHNICCODE == "Asian") ~ "Asian Man",
+                                                            
+                                                            (troubled_students$Gen == "Female" & troubled_students$ETHNICCODE == "American Indian") ~ "American Indian Woman",
+                                                            (troubled_students$Gen == "Male" & troubled_students$ETHNICCODE == "American Indian") ~ "American Indian Man",
+                                                            
+                                                            (troubled_students$Gen == "Female" & troubled_students$ETHNICCODE == "Native American/Pacific Islander") ~ "Pacific Islander Woman",
+                                                            (troubled_students$Gen == "Male" & troubled_students$ETHNICCODE == "Native American/Pacific Islander") ~ "Pacific Islander Man",
+                                                            
+                                                            (troubled_students$Gen == "Female" & troubled_students$ETHNICCODE == "Two or More Races") ~ "Multi-Racial Woman",
+                                                             T ~ "Multi-Racial Man"))
+
+
+
+enth_gender <- ggplot(troubled_students, aes(troubled_students$race_intersection, ACT_SS, group = troubled_students$race_intersection)) + geom_jitter(aes(color = troubled_students$race_intersection), width = 0.2) + geom_boxplot() + coord_flip() + ylab("ACT Score") + xlab("Ethnicity") + ggtitle("Distribution of Scores By Ethnicity and Gender For Underperforming Students")
+enth_gender$labels$colour <- "Ethnicity and Gender"
+
+enth_gender
+
+#Statistical Analysis
+################################################
+df <- df <- read.xlsx("https://github.com/rymarinelli/DPS/blob/main/data/Data%20and%20Codebook.xlsx?raw=true", sheet = "Data")
+df <- df %>% na.omit()
+df <- df %>% subset(df$ACT_SS != 0) 
+
+#What factors are most important to getting students over threshold values 
+df %>% subset( (Subject.Area == "Science" & ACT_SS < 18) | (Subject.Area == "English" & ACT_SS < 18)
+               |(Subject.Area == "Reading" & ACT_SS < 22) | (Subject.Area == "Math" & ACT_SS < 22))
+
+df <- df %>% mutate(college_ready = case_when((df$Subject.Area == "Science" & ACT_SS < 18) ~ 0,
+                                        (df$Subject.Area == "English" & ACT_SS < 18) ~ 0,
+                                        (df$Subject.Area == "Reading" & ACT_SS < 22) ~ 0, 
+                                        (df$Subject.Area == "Math" & ACT_SS < 22) ~ 0,
+                                        T ~ 1 ))
+#If you were not college ready, you would be zero
+#If you improved your grades and got assiged one
+# You would be a negative one 
+
+
+df <- df %>% mutate(improved_student = case_when((improved_score < 0) ~ 1,
+                                            T ~ 0))
+
+df$CDE_ETHNICCODE <- df$CDE_ETHNICCODE %>% as.factor()
+model <- glm(college_ready ~ Gen + CDE_ETHNICCODE, 
+        family = binomial(link = "probit"), 
+        data = df)
+
+stargazer::stargazer(model)
+
+vif(model)
+
+model <- glm(college_ready ~ Gen + CDE_ETHNICCODE + Home_Prim_Lang , 
+             family = binomial(link = "probit"), 
+             data = df)
+
+tidy(model) %>% gt::gt()
